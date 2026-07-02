@@ -10,11 +10,7 @@ use unleash_api_client::client::FeatureKey;
 use unleash_openfeature_rust_provider::{UnleashApiClient, UnleashFlagProvider};
 use unleash_types::client_features::ClientFeatures;
 
-const KNOWN_GAPS: &[&str] = &[
-    "number-empty-string-guard",
-    "variant-json-array",
-    "object-scalar-json-passthrough",
-];
+const KNOWN_GAPS: &[&str] = &["variant-json-array", "object-scalar-json-passthrough"];
 
 #[derive(Clone, Copy, Debug)]
 enum NoFeatureBounds {}

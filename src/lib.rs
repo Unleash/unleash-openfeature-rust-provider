@@ -153,11 +153,7 @@ where
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<i64>> {
-        self.resolve_variant_value(flag_key, evaluation_context, &["number"], |value| {
-            value.parse::<i64>().map_err(|error| {
-                evaluation_error(EvaluationErrorCode::TypeMismatch, error.to_string())
-            })
-        })
+        self.resolve_variant_value(flag_key, evaluation_context, &["number"], parse_int_payload)
     }
 
     async fn resolve_float_value(
@@ -165,11 +161,12 @@ where
         flag_key: &str,
         evaluation_context: &EvaluationContext,
     ) -> EvaluationResult<ResolutionDetails<f64>> {
-        self.resolve_variant_value(flag_key, evaluation_context, &["number"], |value| {
-            value.parse::<f64>().map_err(|error| {
-                evaluation_error(EvaluationErrorCode::TypeMismatch, error.to_string())
-            })
-        })
+        self.resolve_variant_value(
+            flag_key,
+            evaluation_context,
+            &["number"],
+            parse_float_payload,
+        )
     }
 
     async fn resolve_string_value(
@@ -284,6 +281,18 @@ fn evaluation_error(code: EvaluationErrorCode, message: impl Into<String>) -> Ev
         code,
         message: Some(message.into()),
     }
+}
+
+fn parse_int_payload(value: &str) -> EvaluationResult<i64> {
+    value
+        .parse::<i64>()
+        .map_err(|error| evaluation_error(EvaluationErrorCode::ParseError, error.to_string()))
+}
+
+fn parse_float_payload(value: &str) -> EvaluationResult<f64> {
+    value
+        .parse::<f64>()
+        .map_err(|error| evaluation_error(EvaluationErrorCode::ParseError, error.to_string()))
 }
 
 fn to_unleash_context(evaluation_context: &EvaluationContext) -> UnleashContext {
@@ -502,6 +511,19 @@ mod tests {
             .unwrap();
 
         assert_eq!(details.value, 4.2);
+    }
+
+    #[tokio::test]
+    async fn empty_number_payload_returns_parse_error() {
+        let provider =
+            UnleashFlagProvider::new(FakeClient::new([("float", variant("number", ""))]));
+
+        let error = provider
+            .resolve_float_value("float", &EvaluationContext::default())
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.code, EvaluationErrorCode::ParseError);
     }
 
     #[tokio::test]
