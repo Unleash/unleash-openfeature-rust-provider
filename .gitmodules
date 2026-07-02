@@ -1,0 +1,4 @@
+[submodule "verifier"]
+	path = verifier
+	url = git@github.com:irstavr/unleash-openfeature-node-provider-verifier.git
+	branch = refactor/contract-export

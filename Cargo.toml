@@ -13,3 +13,4 @@ unleash-api-client = { version = "0.16.0", features = ["reqwest-client-rustls"] 
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+unleash-types = "0.16.1"

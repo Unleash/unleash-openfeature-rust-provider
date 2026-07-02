@@ -14,6 +14,23 @@ cargo build
 cargo test
 ```
 
+## Test Harness
+
+This repository includes the OpenFeature provider verifier as a git submodule.
+After cloning, initialize it before running the full test suite:
+
+```bash
+git submodule update --init --recursive
+```
+
+If the verifier submodule is intentionally updated, refresh it and commit the
+new submodule pointer:
+
+```bash
+git submodule update --remote --merge verifier
+git status
+```
+
 ## Example
 
 ```bash
