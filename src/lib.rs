@@ -417,7 +417,9 @@ mod tests {
     use unleash_api_client::ClientBuilder;
     use unleash_types::client_features::ClientFeatures;
 
-    const KNOWN_GAPS: &[&str] = &["variant-json-array"];
+    // For future use - you can add known gaps in the contract test suite here to skip them during testing.
+    // Just needs the name of the test to skip
+    const KNOWN_GAPS: &[&str] = &[];
 
     #[derive(Clone, Copy, Debug)]
     enum NoFeatureBounds {}
@@ -588,6 +590,23 @@ mod tests {
             .unwrap();
 
         assert_eq!(details.value, Value::Int(42));
+        assert_eq!(details.variant.as_deref(), Some("variant-a"));
+    }
+
+    #[tokio::test]
+    async fn resolves_json_array_object_value_payload() {
+        let provider =
+            UnleashFlagProvider::new(FakeClient::new([("array", variant("json", "[1,2,3]"))]));
+
+        let details = provider
+            .resolve_object_value_details("array", &EvaluationContext::default())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            details.value,
+            Value::Array(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+        );
         assert_eq!(details.variant.as_deref(), Some("variant-a"));
     }
 
