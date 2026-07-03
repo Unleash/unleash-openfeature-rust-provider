@@ -1,6 +1,6 @@
 [package]
 name = "unleash-openfeature-rust-provider"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 edition = "2024"
 description = "The official Unleash OpenFeature provider for Rust."
 license = "Apache-2.0"
