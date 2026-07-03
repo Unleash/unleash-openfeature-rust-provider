@@ -2,6 +2,9 @@
 name = "unleash-openfeature-rust-provider"
 version = "0.1.0-alpha.1"
 edition = "2024"
+description = "The official Unleash OpenFeature provider for Rust."
+license = "Apache-2.0"
+repository = "https://github.com/Unleash/unleash-openfeature-rust-provider"
 
 [dependencies]
 chrono = "0.4"
