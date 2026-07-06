@@ -14,6 +14,19 @@ use unleash_api_client::client::{FeatureKey, Variant};
 
 type BoxError = Box<dyn Error + Send + Sync + 'static>;
 
+#[cfg(not(any(feature = "tokio", feature = "async-std")))]
+compile_error!("Enable either the `tokio` or `async-std` feature.");
+
+#[cfg(feature = "tokio")]
+type RuntimeMutex<T> = tokio::sync::Mutex<T>;
+#[cfg(all(not(feature = "tokio"), feature = "async-std"))]
+type RuntimeMutex<T> = async_std::sync::Mutex<T>;
+
+#[cfg(feature = "tokio")]
+type PollTask = tokio::task::JoinHandle<()>;
+#[cfg(all(not(feature = "tokio"), feature = "async-std"))]
+type PollTask = async_std::task::JoinHandle<()>;
+
 const BASE_CONTEXT_KEYS: [&str; 6] = [
     "currentTime",
     "userId",
@@ -43,7 +56,7 @@ where
     F: FeatureKey + Send + Sync,
 {
     client: Arc<unleash_api_client::Client<F>>,
-    poll_task: tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    poll_task: RuntimeMutex<Option<PollTask>>,
 }
 
 impl<F> UnleashApiClient<F>
@@ -53,7 +66,7 @@ where
     pub fn new(client: unleash_api_client::Client<F>) -> Self {
         Self {
             client: Arc::new(client),
-            poll_task: tokio::sync::Mutex::new(None),
+            poll_task: RuntimeMutex::new(None),
         }
     }
 }
@@ -71,10 +84,7 @@ where
 
         self.client.register().await?;
 
-        let client = Arc::clone(&self.client);
-        *poll_task = Some(tokio::spawn(async move {
-            client.poll_for_updates().await;
-        }));
+        *poll_task = Some(spawn_poll_task(Arc::clone(&self.client)));
 
         Ok(())
     }
@@ -83,7 +93,7 @@ where
         let mut poll_task = self.poll_task.lock().await;
         if let Some(poll_task) = poll_task.take() {
             self.client.stop_poll().await;
-            poll_task.abort();
+            stop_poll_task(poll_task).await;
         }
     }
 
@@ -94,6 +104,36 @@ where
     fn get_variant(&self, flag_key: &str, context: &UnleashContext) -> Variant {
         self.client.get_variant_str(flag_key, context)
     }
+}
+
+#[cfg(feature = "tokio")]
+fn spawn_poll_task<F>(client: Arc<unleash_api_client::Client<F>>) -> PollTask
+where
+    F: FeatureKey + Send + Sync + 'static,
+{
+    tokio::spawn(async move {
+        client.poll_for_updates().await;
+    })
+}
+
+#[cfg(all(not(feature = "tokio"), feature = "async-std"))]
+fn spawn_poll_task<F>(client: Arc<unleash_api_client::Client<F>>) -> PollTask
+where
+    F: FeatureKey + Send + Sync + 'static,
+{
+    async_std::task::spawn(async move {
+        client.poll_for_updates().await;
+    })
+}
+
+#[cfg(feature = "tokio")]
+async fn stop_poll_task(poll_task: PollTask) {
+    poll_task.abort();
+}
+
+#[cfg(all(not(feature = "tokio"), feature = "async-std"))]
+async fn stop_poll_task(poll_task: PollTask) {
+    let _ = poll_task.cancel().await;
 }
 
 pub struct UnleashFlagProvider<C> {

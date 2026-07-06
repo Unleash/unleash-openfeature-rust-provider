@@ -25,11 +25,20 @@ jobs:
       - name: Build
         run: cargo build
 
+      - name: Build async-std
+        run: cargo build --no-default-features --features async-std
+
       - name: Check formatting
         run: cargo fmt --check
 
       - name: Test
         run: cargo test
 
+      - name: Test async-std
+        run: cargo test --no-default-features --features async-std
+
       - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Clippy async-std
+        run: cargo clippy --all-targets --no-default-features --features async-std -- -D warnings

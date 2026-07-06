@@ -6,12 +6,18 @@ description = "The official Unleash OpenFeature provider for Rust."
 license = "Apache-2.0"
 repository = "https://github.com/Unleash/unleash-openfeature-rust-provider"
 
+[features]
+default = ["tokio"]
+tokio = ["dep:tokio"]
+async-std = ["dep:async-std", "unleash-api-client/async-std"]
+
 [dependencies]
+async-std = { version = "1.13", optional = true }
 chrono = "0.4"
 log = "0.4"
 open-feature = { version = "0.3.0", features = ["serde_json"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt", "sync"] }
+tokio = { version = "1", features = ["rt", "sync"], optional = true }
 unleash-api-client = { version = "0.16.0", features = ["reqwest-client-rustls"] }
 
 [dev-dependencies]
