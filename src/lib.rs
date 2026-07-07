@@ -691,7 +691,7 @@ mod tests {
     #[tokio::test]
     async fn verifier_contract_scenarios() {
         let contract: serde_json::Value =
-            serde_json::from_str(include_str!("../verifier/contract.json"))
+            serde_json::from_str(include_str!("../verifier/spec/contract.json"))
                 .expect("valid contract");
         let features: ClientFeatures =
             serde_json::from_str(include_str!("../verifier/fixtures/unleash-features.json"))
