@@ -1,6 +1,6 @@
 //! OpenFeature provider for Unleash.
 
-use std::{collections::HashMap, error::Error, sync::Arc};
+use std::{collections::HashMap, error::Error, io, sync::Arc};
 
 use log::debug;
 use open_feature::async_trait;
@@ -9,10 +9,19 @@ use open_feature::{
     EvaluationContext, EvaluationContextFieldValue, EvaluationError, EvaluationErrorCode,
     EvaluationReason, EvaluationResult, StructValue, Value,
 };
-use unleash_api_client::Context as UnleashContext;
 use unleash_api_client::client::{FeatureKey, Variant};
+use unleash_api_client::{ClientBuilder, Context as UnleashContext};
 
 type BoxError = Box<dyn Error + Send + Sync + 'static>;
+
+#[derive(Clone, Copy, Debug)]
+enum NoFeatureKeys {}
+
+impl FeatureKey for NoFeatureKeys {
+    fn name(self) -> &'static str {
+        match self {}
+    }
+}
 
 #[cfg(not(any(feature = "tokio", feature = "async-std")))]
 compile_error!("Enable either the `tokio` or `async-std` feature.");
@@ -37,7 +46,7 @@ const BASE_CONTEXT_KEYS: [&str; 6] = [
 ];
 
 #[async_trait]
-pub trait UnleashClient: Send + Sync + 'static {
+trait UnleashClient: Send + Sync + 'static {
     /// Initialize the client. Implementations must make this idempotent.
     async fn initialize(&self) -> Result<(), BoxError>;
 
@@ -51,7 +60,7 @@ pub trait UnleashClient: Send + Sync + 'static {
     fn get_variant(&self, flag_key: &str, context: &UnleashContext) -> Variant;
 }
 
-pub struct UnleashApiClient<F>
+struct UnleashApiClient<F>
 where
     F: FeatureKey + Send + Sync,
 {
@@ -63,7 +72,7 @@ impl<F> UnleashApiClient<F>
 where
     F: FeatureKey + Send + Sync,
 {
-    pub fn new(client: unleash_api_client::Client<F>) -> Self {
+    fn new(client: unleash_api_client::Client<F>) -> Self {
         Self {
             client: Arc::new(client),
             poll_task: RuntimeMutex::new(None),
@@ -136,18 +145,16 @@ async fn stop_poll_task(poll_task: PollTask) {
     let _ = poll_task.cancel().await;
 }
 
-pub struct UnleashFlagProvider<C> {
-    client: C,
+pub struct UnleashFlagProvider {
+    client: Box<dyn UnleashClient>,
     metadata: ProviderMetadata,
 }
 
-impl<C> UnleashFlagProvider<C>
-where
-    C: UnleashClient,
-{
-    pub fn new(client: C) -> Self {
+impl UnleashFlagProvider {
+    #[cfg(test)]
+    fn from_client(client: impl UnleashClient) -> Self {
         Self {
-            client,
+            client: Box::new(client),
             metadata: ProviderMetadata::new("Unleash OpenFeature Provider"),
         }
     }
@@ -182,10 +189,7 @@ where
 }
 
 #[async_trait]
-impl<C> FeatureProvider for UnleashFlagProvider<C>
-where
-    C: UnleashClient,
-{
+impl FeatureProvider for UnleashFlagProvider {
     async fn initialize(&mut self, _context: &EvaluationContext) {
         if let Err(error) = self.initialize_client().await {
             log::warn!("failed to initialize Unleash client: {error}");
@@ -264,10 +268,7 @@ where
     }
 }
 
-impl<C> UnleashFlagProvider<C>
-where
-    C: UnleashClient,
-{
+impl UnleashFlagProvider {
     fn resolve_variant_value<T>(
         &self,
         flag_key: &str,
@@ -282,6 +283,26 @@ where
         let value = convert(payload_value)?;
 
         Ok(resolution(value, variant_name, EvaluationReason::Unknown))
+    }
+}
+
+impl UnleashFlagProvider {
+    pub fn new(
+        builder: ClientBuilder,
+        api_url: &str,
+        app_name: &str,
+        instance_id: &str,
+        authorization: Option<String>,
+    ) -> Result<Self, BoxError> {
+        let client = builder
+            .enable_string_features()
+            .into_client::<NoFeatureKeys>(api_url, app_name, instance_id, authorization)
+            .map_err(|error| -> BoxError { Box::new(io::Error::other(error.to_string())) })?;
+
+        Ok(Self {
+            client: Box::new(UnleashApiClient::new(client)),
+            metadata: ProviderMetadata::new("Unleash OpenFeature Provider"),
+        })
     }
 }
 
@@ -524,7 +545,7 @@ mod tests {
     #[tokio::test]
     async fn resolves_boolean_flag() {
         let provider =
-            UnleashFlagProvider::new(FakeClient::new([("enabled", variant("string", ""))]));
+            UnleashFlagProvider::from_client(FakeClient::new([("enabled", variant("string", ""))]));
 
         let details = provider
             .resolve_bool_value("enabled", &EvaluationContext::default())
@@ -536,8 +557,10 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_string_variant_payload() {
-        let provider =
-            UnleashFlagProvider::new(FakeClient::new([("string", variant("string", "hello"))]));
+        let provider = UnleashFlagProvider::from_client(FakeClient::new([(
+            "string",
+            variant("string", "hello"),
+        )]));
 
         let details = provider
             .resolve_string_value("string", &EvaluationContext::default())
@@ -551,7 +574,7 @@ mod tests {
     #[tokio::test]
     async fn resolves_csv_variant_payload_as_string() {
         let provider =
-            UnleashFlagProvider::new(FakeClient::new([("csv", variant("csv", "a,b,c"))]));
+            UnleashFlagProvider::from_client(FakeClient::new([("csv", variant("csv", "a,b,c"))]));
 
         let details = provider
             .resolve_string_value("csv", &EvaluationContext::default())
@@ -563,8 +586,10 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_integer_variant_payload() {
-        let provider =
-            UnleashFlagProvider::new(FakeClient::new([("integer", variant("number", "42"))]));
+        let provider = UnleashFlagProvider::from_client(FakeClient::new([(
+            "integer",
+            variant("number", "42"),
+        )]));
 
         let details = provider
             .resolve_int_value("integer", &EvaluationContext::default())
@@ -576,8 +601,10 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_float_variant_payload() {
-        let provider =
-            UnleashFlagProvider::new(FakeClient::new([("float", variant("number", "4.2"))]));
+        let provider = UnleashFlagProvider::from_client(FakeClient::new([(
+            "float",
+            variant("number", "4.2"),
+        )]));
 
         let details = provider
             .resolve_float_value("float", &EvaluationContext::default())
@@ -590,7 +617,7 @@ mod tests {
     #[tokio::test]
     async fn empty_number_payload_returns_parse_error() {
         let provider =
-            UnleashFlagProvider::new(FakeClient::new([("float", variant("number", ""))]));
+            UnleashFlagProvider::from_client(FakeClient::new([("float", variant("number", ""))]));
 
         let error = provider
             .resolve_float_value("float", &EvaluationContext::default())
@@ -602,7 +629,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_json_object_payload() {
-        let provider = UnleashFlagProvider::new(FakeClient::new([(
+        let provider = UnleashFlagProvider::from_client(FakeClient::new([(
             "object",
             variant("json", r#"{"enabled":true,"count":3}"#),
         )]));
@@ -622,7 +649,7 @@ mod tests {
     #[tokio::test]
     async fn resolves_json_scalar_object_value_payload() {
         let provider =
-            UnleashFlagProvider::new(FakeClient::new([("scalar", variant("json", "42"))]));
+            UnleashFlagProvider::from_client(FakeClient::new([("scalar", variant("json", "42"))]));
 
         let details = provider
             .resolve_object_value_details("scalar", &EvaluationContext::default())
@@ -635,8 +662,10 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_json_array_object_value_payload() {
-        let provider =
-            UnleashFlagProvider::new(FakeClient::new([("array", variant("json", "[1,2,3]"))]));
+        let provider = UnleashFlagProvider::from_client(FakeClient::new([(
+            "array",
+            variant("json", "[1,2,3]"),
+        )]));
 
         let details = provider
             .resolve_object_value_details("array", &EvaluationContext::default())
@@ -652,8 +681,10 @@ mod tests {
 
     #[tokio::test]
     async fn json_array_payload_returns_type_mismatch() {
-        let provider =
-            UnleashFlagProvider::new(FakeClient::new([("array", variant("json", "[1,2,3]"))]));
+        let provider = UnleashFlagProvider::from_client(FakeClient::new([(
+            "array",
+            variant("json", "[1,2,3]"),
+        )]));
 
         let error = provider
             .resolve_struct_value("array", &EvaluationContext::default())
@@ -708,7 +739,7 @@ mod tests {
             .expect("client builds");
         client.memoize(features).expect("fixture memoizes");
 
-        let provider = UnleashFlagProvider::new(UnleashApiClient::new(client));
+        let provider = UnleashFlagProvider::from_client(UnleashApiClient::new(client));
         let known_gaps = KNOWN_GAPS.iter().copied().collect::<HashSet<_>>();
         let mut failures = Vec::new();
 
@@ -735,7 +766,7 @@ mod tests {
     }
 
     async fn assert_scenario(
-        provider: &UnleashFlagProvider<UnleashApiClient<NoFeatureBounds>>,
+        provider: &UnleashFlagProvider,
         scenario: &serde_json::Value,
     ) -> Result<(), String> {
         let details = evaluate(provider, scenario).await;
@@ -776,10 +807,7 @@ mod tests {
         Ok(())
     }
 
-    async fn evaluate(
-        provider: &UnleashFlagProvider<UnleashApiClient<NoFeatureBounds>>,
-        scenario: &serde_json::Value,
-    ) -> Details {
+    async fn evaluate(provider: &UnleashFlagProvider, scenario: &serde_json::Value) -> Details {
         let flag_key = scenario["flagKey"].as_str().expect("flag key");
         let context = evaluation_context(scenario.get("context"));
         let default_value = scenario["default"].clone();

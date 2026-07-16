@@ -3,33 +3,21 @@ use std::{error::Error, io, time::Duration};
 use open_feature::EvaluationContext;
 use open_feature::provider::FeatureProvider;
 use tokio::time::sleep;
-use unleash_api_client::ClientBuilder;
-use unleash_api_client::client::FeatureKey;
-use unleash_openfeature_rust_provider::{UnleashApiClient, UnleashFlagProvider};
-
-#[derive(Clone, Copy, Debug)]
-enum NoFeatureBounds {}
-
-impl FeatureKey for NoFeatureBounds {
-    fn name(self) -> &'static str {
-        match self {}
-    }
-}
+use unleash_api_client::{ClientBuilder, EnvironmentConfig};
+use unleash_openfeature_rust_provider::UnleashFlagProvider;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    let config = EnvironmentConfig::from_env()?;
     let args = Args::parse()?;
 
-    let unleash_client = ClientBuilder::default()
-        .enable_string_features()
-        .into_client::<NoFeatureBounds>(
-            &args.url,
-            &args.app_name,
-            &args.instance_id,
-            Some(args.api_key),
-        )?;
-
-    let provider = UnleashFlagProvider::new(UnleashApiClient::new(unleash_client));
+    let provider = UnleashFlagProvider::new(
+        ClientBuilder::default(),
+        &config.api_url,
+        &config.app_name,
+        &config.instance_id,
+        config.secret,
+    )?;
     provider.initialize_client().await?;
     sleep(Duration::from_millis(500)).await;
 
@@ -52,42 +40,26 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 }
 
 struct Args {
-    url: String,
-    api_key: String,
     flag_key: String,
-    app_name: String,
-    instance_id: String,
     targeting_key: Option<String>,
 }
 
 impl Args {
     fn parse() -> Result<Self, Box<dyn Error + Send + Sync>> {
-        let mut url = None;
-        let mut api_key = None;
         let mut flag_key = None;
-        let mut app_name = "openfeature-example".to_string();
-        let mut instance_id = "openfeature-example".to_string();
         let mut targeting_key = None;
 
         let mut args = std::env::args().skip(1);
         while let Some(arg) = args.next() {
             match arg.as_str() {
-                "--url" => url = args.next(),
-                "--api-key" => api_key = args.next(),
                 "--flag-key" => flag_key = args.next(),
-                "--app-name" => app_name = required_value("--app-name", args.next())?,
-                "--instance-id" => instance_id = required_value("--instance-id", args.next())?,
                 "--targeting-key" => targeting_key = args.next(),
                 _ => return Err(format!("unknown argument: {arg}").into()),
             }
         }
 
         Ok(Self {
-            url: required_value("--url", url)?,
-            api_key: required_value("--api-key", api_key)?,
             flag_key: required_value("--flag-key", flag_key)?,
-            app_name,
-            instance_id,
             targeting_key,
         })
     }

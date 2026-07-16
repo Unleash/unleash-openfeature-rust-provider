@@ -34,9 +34,12 @@ git status
 ## Example
 
 ```bash
+export UNLEASH_API_URL=https://app.unleash-hosted.com/demo/api
+export UNLEASH_APP_NAME=openfeature-example
+export UNLEASH_INSTANCE_ID=openfeature-example
+export UNLEASH_CLIENT_SECRET="$UNLEASH_API_KEY"
+
 cargo run --example boolean_flag -- \
-  --url https://app.unleash-hosted.com/demo/api \
-  --api-key "$UNLEASH_API_KEY" \
   --flag-key my-feature \
   --targeting-key user-123
 ```
@@ -44,18 +47,16 @@ cargo run --example boolean_flag -- \
 The Unleash Rust client must be created with string feature lookup enabled:
 
 ```rust
-use unleash_api_client::ClientBuilder;
-use unleash_openfeature_rust_provider::{UnleashApiClient, UnleashFlagProvider};
+use unleash_api_client::{ClientBuilder, EnvironmentConfig};
+use unleash_openfeature_rust_provider::UnleashFlagProvider;
 
-let unleash_client = ClientBuilder::default()
-    .enable_string_features()
-    .into_client::<NoFeatures>(
-        url,
-        app_name,
-        instance_id,
-        Some(api_key),
-    )?;
-
-let provider = UnleashFlagProvider::new(UnleashApiClient::new(unleash_client));
+let config = EnvironmentConfig::from_env()?;
+let provider = UnleashFlagProvider::new(
+    ClientBuilder::default(),
+    &config.api_url,
+    &config.app_name,
+    &config.instance_id,
+    config.secret,
+)?;
 provider.initialize_client().await?;
 ```
