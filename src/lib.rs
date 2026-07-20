@@ -295,6 +295,10 @@ impl UnleashFlagProvider {
         authorization: Option<String>,
     ) -> Result<Self, BoxError> {
         let client = builder
+            .sdk_flavour(
+                "unleash-openfeature-rust-provider",
+                env!("CARGO_PKG_VERSION"),
+            )
             .enable_string_features()
             .into_client::<NoFeatureKeys>(api_url, app_name, instance_id, authorization)
             .map_err(|error| -> BoxError { Box::new(io::Error::other(error.to_string())) })?;
