@@ -45,6 +45,7 @@ jobs:
         run: cargo publish --dry-run
 
       - name: Authenticate to crates.io
+        id: auth
         uses: rust-lang/crates-io-auth-action@v1
 
       - name: Check tag does not exist
